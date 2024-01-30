@@ -197,7 +197,7 @@ describe('Solution.js', () => {
         }
       });
 
-      it('Should add a message if address exists in the tree and update the counter.', async () => {
+      it('Should add a message if address exists in the tree, update the counter and emit events.', async () => {
         const index = 0n;
         const pk = Local.testAccounts[1].privateKey;
         const address = pk.toPublicKey();
@@ -209,6 +209,13 @@ describe('Solution.js', () => {
         const expected = Field.from(1).toString();
         const messageCounter = solutionZkApp.messageCounter.get().toString();
         expect(messageCounter).toEqual(expected);
+
+        const events = await solutionZkApp.fetchEvents();
+        const addressEventValue = events[0].event.data;
+        const messageEventValue = events[1].event.data;
+
+        expect(addressEventValue).toEqual(address);
+        expect(messageEventValue).toEqual(message);
       });
     });
   });

@@ -24,6 +24,11 @@ export class Solution extends SmartContract {
   @state(UInt64) messageCounter = State<UInt64>();
   @state(Field) salt = State<Field>();
 
+  events = {
+    'message-received': Field,
+    sender: PublicKey,
+  };
+
   init() {
     super.init();
   }
@@ -98,5 +103,8 @@ export class Solution extends SmartContract {
 
     this.messageCounter.set(this.messageCounter.get().add(UInt64.from(1)));
     this.messagesCommitment.set(messageMapUpdatedCommitment);
+
+    this.emitEvent('message-received', message);
+    this.emitEvent('sender', address);
   }
 }
