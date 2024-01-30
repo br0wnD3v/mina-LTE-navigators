@@ -8,18 +8,20 @@ import {
   PublicKey,
   Poseidon,
   MerkleWitness,
-  MerkleMap,
   Gadgets,
   Provable,
   Bool,
+  MerkleMapWitness,
+  UInt64,
 } from 'o1js';
 
-class AddressWitness extends MerkleWitness(8) {}
+export class MerkleTreeWitness extends MerkleWitness(8) {}
 
 export class Solution extends SmartContract {
   @state(Field) addressCommitment = State<Field>();
   @state(Field) messagesCommitment = State<Field>();
-  @state(UInt8) counter = State<UInt8>();
+  @state(UInt8) addressCounter = State<UInt8>();
+  @state(UInt64) messageCounter = State<UInt64>();
   @state(Field) salt = State<Field>();
 
   init() {
@@ -28,88 +30,73 @@ export class Solution extends SmartContract {
 
   @method initSalt(salt: Field) {
     this.salt.getAndRequireEquals();
-    this.salt.requireEquals(Poseidon.hash([Field.from(0)]));
+    this.salt.requireEquals(Field.from(0));
 
     this.salt.set(Poseidon.hash([salt]));
   }
 
-  // @method initTree(commitment: Field, salt: Field) {
-  //   this.addressCommitment.getAndRequireEquals();
-  //   this.salt.getAndRequireEquals();
-
-  //   this.salt.requireEquals(Poseidon.hash([salt]));
-
-  //   this.addressCommitment.set(commitment);
-  // }
-
-  // @method initMap(commitment: Field, salt: Field) {
-  //   this.messagesCommitment.getAndRequireEquals();
-  //   this.salt.getAndRequireEquals();
-
-  //   this.salt.requireEquals(Poseidon.hash([salt]));
-
-  //   this.messagesCommitment.set(commitment);
-  // }
-
   @method addAddress(
     sentSalt: Field,
-    addressWitness: AddressWitness,
+    addressWitness: MerkleTreeWitness,
     address: PublicKey
   ) {
     this.salt.getAndRequireEquals();
     this.addressCommitment.getAndRequireEquals();
     this.messagesCommitment.getAndRequireEquals();
-    this.counter.getAndRequireEquals();
+    this.addressCounter.getAndRequireEquals();
 
     // Limit of 100
-    this.counter.get().assertLessThan(UInt8.from(100));
+    this.addressCounter.get().assertLessThan(UInt8.from(100));
     // Only to be changed by the admin.
     this.salt.requireEquals(Poseidon.hash([sentSalt]));
 
     const updatedCommitment = addressWitness.calculateRoot(
       Poseidon.hash(address.toFields())
     );
+    this.addressCounter.set(this.addressCounter.get().add(UInt8.from(1)));
     this.addressCommitment.set(updatedCommitment);
+  }
+
+  @method getLast6Bits(message: Field): Field {
+    const last6Bits = Gadgets.and(message, Field.from(0b111111), 32);
+    return last6Bits;
   }
 
   @method addMessage(
     address: PublicKey,
-    addressWitness: AddressWitness,
+    addressWitness: MerkleTreeWitness,
     message: Field,
-    messageMap: MerkleMap
+    messageWitness: MerkleMapWitness
   ) {
     this.salt.getAndRequireEquals();
+    this.messageCounter.getAndRequireEquals();
     this.messagesCommitment.getAndRequireEquals();
     this.addressCommitment.getAndRequireEquals();
-    this.counter.getAndRequireEquals();
 
-    const key = Poseidon.hash(address.toFields());
-    const calculatedCommitment = addressWitness.calculateRoot(key);
+    const addressKey = Poseidon.hash(address.toFields());
+    const calculatedAddressCommitment =
+      addressWitness.calculateRoot(addressKey);
 
-    this.addressCommitment.get().assertEquals(calculatedCommitment);
+    this.addressCommitment.get().assertEquals(calculatedAddressCommitment);
 
-    messageMap.get(key).assertNotEquals(Field.from(0));
+    const [messageMapUpdatedCommitment, messageKey] =
+      messageWitness.computeRootAndKey(message);
 
-    const valid_1 = Gadgets.and(message, Field.from(0b100000), 6).equals(
-      Field.from(0b100000)
-    );
-    const valid_2 = Gadgets.and(message, Field.from(0b011000), 6).equals(
-      Field.from(0b011000)
-    );
-    const valid_3 = Gadgets.and(message, Field.from(0b001000), 6).equals(
-      Field.from(0b011000)
-    );
+    messageKey.assertEquals(addressKey);
 
-    const validMessage = Provable.if(
-      valid_1 || valid_2 || valid_3,
-      Bool(true),
-      Bool(false)
-    );
+    const last6Bits = Gadgets.and(message, Field.from(0b111111), 32);
+    const valid_1 = last6Bits.equals(Field.from(0b100000));
+    const valid_2 = last6Bits.equals(Field.from(0b11000));
+    const valid_3 = last6Bits.equals(Field.from(0b100));
+
+    const validMessage = Provable.switch([valid_1, valid_2, valid_3], Bool, [
+      valid_1,
+      valid_2,
+      valid_3,
+    ]);
     validMessage.assertTrue();
 
-    messageMap.set(key, message);
-    const updatedMessagesCommitment = messageMap.getRoot();
-
-    this.messagesCommitment.set(updatedMessagesCommitment);
+    this.messageCounter.set(this.messageCounter.get().add(UInt64.from(1)));
+    this.messagesCommitment.set(messageMapUpdatedCommitment);
   }
 }
