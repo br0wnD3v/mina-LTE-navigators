@@ -24,28 +24,32 @@ export class Message extends Struct({
 
 export class Solution extends SmartContract {
   @state(Field) HighestValidMessageId = State<Field>();
+  @state(Field) PreviousMessageId = State<Field>();
 
   init() {
     super.init();
-    this.HighestValidMessageId.set(Field.from(0));
   }
 
   @method receive(message: Message) {
     const currH = this.HighestValidMessageId.getAndRequireEquals();
+    const previousId = this.PreviousMessageId.getAndRequireEquals();
 
-    const validMessage: Bool = this.validateMessage(message);
+    const validMessage: Bool = this.validateMessage(previousId, message);
     const currMID = message.MessageNumber;
 
     const toSet: Field = Provable.if(
-      currMID.greaterThan(currMID).and(validMessage),
+      currMID.greaterThan(currH).and(validMessage),
       currMID,
       currH
     );
 
+    this.PreviousMessageId.set(currMID);
     this.HighestValidMessageId.set(toSet);
   }
 
-  @method validateMessage(message: Message): Bool {
+  @method validateMessage(previousId: Field, message: Message): Bool {
+    const currentMessageId: Field = message.MessageNumber;
+
     const currentAgent: UInt64 = message.Details.AgentID;
     const currentX: UInt64 = message.Details.AgentXLocation;
     const currentY: UInt64 = message.Details.AgentYLocation;
@@ -68,13 +72,17 @@ export class Solution extends SmartContract {
     );
     const validXYRelation: Bool = currentY.greaterThan(currentX);
 
-    const valid_1: Bool = Bool(currentAgent.equals(UInt64.from(0)));
+    //agentid - 0
+    const valid_1: Bool = currentAgent.equals(UInt64.from(0));
+    //details
     const valid_2: Bool = validAgent
       .and(validX)
       .and(validY)
       .and(validChecksum)
       .and(validXYRelation);
-    const valid: Bool = valid_1.or(valid_2);
+    //message number is not greater than the previous one
+    const valid_3 = previousId.greaterThanOrEqual(currentMessageId);
+    const valid: Bool = valid_1.or(valid_2).or(valid_3);
 
     return valid;
   }
