@@ -22,30 +22,27 @@ export class Message extends Struct({
   Details: MessageDetails,
 }) {}
 
-export class Messages extends Struct({
-  array: Provable.Array(Message, 200),
-}) {}
-
 export class Solution extends SmartContract {
   @state(Field) HighestValidMessageId = State<Field>();
 
-  @method receive(messages: Messages) {
-    this.HighestValidMessageId.getAndRequireEquals();
+  init() {
+    super.init();
+    this.HighestValidMessageId.set(Field.from(0));
+  }
 
-    for (let i = 0; i < 200; i++) {
-      const validMessage: Bool = this.validateMessage(messages.array[i]);
+  @method receive(message: Message) {
+    const currH = this.HighestValidMessageId.getAndRequireEquals();
 
-      const currH = this.HighestValidMessageId.get();
-      const currMID = messages.array[i].MessageNumber;
+    const validMessage: Bool = this.validateMessage(message);
+    const currMID = message.MessageNumber;
 
-      const toSet: Field = Provable.if(
-        currMID.greaterThan(currMID).and(validMessage),
-        currMID,
-        currH
-      );
+    const toSet: Field = Provable.if(
+      currMID.greaterThan(currMID).and(validMessage),
+      currMID,
+      currH
+    );
 
-      this.HighestValidMessageId.set(toSet);
-    }
+    this.HighestValidMessageId.set(toSet);
   }
 
   @method validateMessage(message: Message): Bool {
